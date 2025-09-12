@@ -1,0 +1,9 @@
+Copyright (c) 2025 Guillaume Lessard – iD01t Productions.
+All Rights Reserved.
+
+This software is licensed under the iD01t Productions License.
+You may not use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the terms of the iD01t Productions License.
+
+For the full license terms, please contact iD01t Productions.
