@@ -1,3 +1,4 @@
+# crash_guard.py
 import sys
 import json
 import traceback
@@ -5,86 +6,132 @@ import time
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+from typing import Optional
 
-# Define the application name and log directory
-APP_NAME = "Py2WinPro"
-LOG_DIR = os.path.join(os.path.expanduser("~"), f".{APP_NAME.lower()}", "logs")
+# Defaults (used by setup_crash_guard)
+APP_NAME_DEFAULT = "Py2WinPro"
+APP_VERSION_DEFAULT = "1.0.0"
 
-# Ensure the log directory exists
-os.makedirs(LOG_DIR, exist_ok=True)
 
-# Set up the main application logger
-logger = logging.getLogger(APP_NAME)
-logger.setLevel(logging.INFO)
-# Prevent logging from propagating to the root logger to avoid duplicate outputs
-logger.propagate = False
+# ---------------------------
+# Paths
+# ---------------------------
+def _get_data_dir(product_name: str) -> str:
+    """
+    Return the per-user data directory for the product.
+    Windows: %LOCALAPPDATA%\<Product>
+    Others : ~/.<product>
+    """
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+        return os.path.join(base, product_name)
+    return os.path.join(os.path.expanduser("~"), f".{product_name.lower()}")
 
-# Create a rotating file handler and formatter
-handler = RotatingFileHandler(
-    os.path.join(LOG_DIR, "app.log"), maxBytes=2_000_000, backupCount=5
-)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
 
-# Add the handler to the logger only if it hasn't been added before
-if not logger.handlers:
-    logger.addHandler(handler)
-
-def _generate_crash_report(exc_type, exc_value, tb):
-    """Generates a detailed JSON crash report."""
+# ---------------------------
+# Crash report generation
+# ---------------------------
+def _generate_crash_report(
+    exc_type: type,
+    exc_value: BaseException,
+    tb,
+    app_version: str,
+    product: str,
+    data_dir: str,
+) -> Optional[str]:
+    """Generate a detailed JSON crash report under <data_dir>/crashes."""
     report = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "exc_type": exc_type.__name__,
+        "exc_type": getattr(exc_type, "__name__", str(exc_type)),
         "message": str(exc_value),
-        "traceback": ''.join(traceback.format_tb(tb)),
-        "version": "1.0.0",  # Placeholder for app version
+        "traceback": "".join(traceback.format_tb(tb)),
+        "version": app_version,
         "platform": sys.platform,
-        "app_name": APP_NAME,
+        "product": product,
     }
 
-    # Save the report to a file with a unique timestamp
-    crash_report_path = os.path.join(LOG_DIR, f"crash_{int(time.time())}.json")
+    crash_dir = os.path.join(data_dir, "crashes")
+    os.makedirs(crash_dir, exist_ok=True)
+    crash_report_path = os.path.join(crash_dir, f"crash_{int(time.time())}.json")
+
     try:
         with open(crash_report_path, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         return crash_report_path
-    except IOError as e:
-        # Log an error if the report can't be written
-        logger.error("Failed to write crash report to %s: %s", crash_report_path, e)
+    except IOError:
+        # Fall back to stderr if we cannot write the report
+        print(f"[CrashGuard] Failed to write crash report to {crash_report_path}", file=sys.stderr)
         return None
 
-def _attempt_self_heal():
-    """A placeholder for future self-healing logic."""
+
+# ---------------------------
+# Self-heal (placeholder)
+# ---------------------------
+def _attempt_self_heal(product: str) -> None:
+    """
+    Placeholder for self-healing logic.
+    Examples: disable extensions, clear caches, restart workers, toggle Safe Mode.
+    """
+    logger = logging.getLogger(product)
     try:
-        # Future logic could include disabling plugins, resetting caches, etc.
-        logger.info("Entering Safe Mode and attempting self-heal.")
+        logger.info("Attempting self-heal… (placeholder)")
+        # TODO: implement real remediation recipes
     except Exception as e:
         logger.exception("Self-heal attempt failed: %s", e)
 
-def _crash_handler(exc_type, exc_value, tb):
-    """
-    The main crash handler function assigned to sys.excepthook.
-    It logs the error, generates a report, and attempts to self-heal.
-    """
-    # Log the critical error with full exception info
-    logger.critical("Unhandled exception caught!", exc_info=(exc_type, exc_value, tb))
 
-    # Generate and save the detailed crash report
-    report_path = _generate_crash_report(exc_type, exc_value, tb)
-    if report_path:
-        logger.error("Crash report saved to: %s", report_path)
-
-    # Trigger the self-heal process
-    _attempt_self_heal()
-
-    # For a real app, you might show a user-friendly dialog here.
-    # For now, we print to stderr to notify the user.
-    print(f"A critical error occurred. A crash report has been saved to {report_path}", file=sys.stderr)
-
-def setup_crash_guard():
+# ---------------------------
+# Public API
+# ---------------------------
+def install_crash_guard(app_version: str, product: str) -> logging.Logger:
     """
-    Initializes the crash guard and logging system.
-    This should be called once when the application starts.
+    Initialize logging and install a global crash handler.
+    Call once at application startup.
+
+    Returns:
+        The configured logger for the product.
     """
+    # Paths
+    data_dir = _get_data_dir(product)
+    log_dir = os.path.join(data_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Logger
+    logger = logging.getLogger(product)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    if not any(isinstance(h, RotatingFileHandler) for h in logger.handlers):
+        handler = RotatingFileHandler(
+            os.path.join(log_dir, "app.log"),
+            maxBytes=2_000_000,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+    # Crash hook
+    def _crash_handler(exc_type, exc_value, tb):
+        logger.critical("Unhandled exception", exc_info=(exc_type, exc_value, tb))
+        report_path = _generate_crash_report(exc_type, exc_value, tb, app_version, product, data_dir)
+        if report_path:
+            logger.error("Crash report saved to: %s", report_path)
+        _attempt_self_heal(product)
+        print(f"\nA critical error occurred in {product}.", file=sys.stderr)
+        if report_path:
+            print(f"A crash report has been saved to: {report_path}", file=sys.stderr)
+
     sys.excepthook = _crash_handler
-    logger.info("CrashGuard initialized. Unhandled exceptions will now be caught.")
+
+    logger.info("CrashGuard initialized for %s v%s", product, app_version)
+    logger.info("User data directory: %s", data_dir)
+    return logger
+
+
+def setup_crash_guard() -> logging.Logger:
+    """
+    Convenience initializer using default product/version.
+    Tests and simple apps can call this without parameters.
+    """
+    return install_crash_guard(APP_VERSION_DEFAULT, APP_NAME_DEFAULT)

@@ -1,76 +1,86 @@
-import time
+# main.py
 import sys
+import time
 import logging
 
-# Import the necessary components from our resilience modules
-from py2win.crash_guard import setup_crash_guard, APP_NAME
-from py2win.preflight import run_preflight_checks
-from py2win.debug_daemon import Heartbeat, DebugDaemon
+# Resilience stack
+from py2win.crash_guard import install_crash_guard
+from py2win.debug_daemon import DebugDaemon, Heartbeat
+from py2win.preflight import run_preflight
 
-# It's good practice to get the logger by name after it has been configured
-logger = logging.getLogger(APP_NAME)
+# SafeMode is optional; fall back to disabled if the module isn’t present yet.
+try:
+    from py2win.safe_mode import SafeMode  # type: ignore
+except Exception:
+    class SafeMode:  # minimal shim
+        @staticmethod
+        def enabled() -> bool:
+            return False
 
-def main():
-    """The main entry point for the Py2WinPro application."""
-    # 1. Initialize CrashGuard and Logging
-    # This MUST be the very first step to ensure all subsequent startup
-    # errors are caught and properly logged.
-    setup_crash_guard()
-    logger.info("========================================")
-    logger.info("Application starting up...")
-    logger.info("========================================")
 
-    # 2. Run Pre-flight Checks
-    logger.info("Running pre-flight checks...")
-    all_checks_passed, report = run_preflight_checks()
+# --- Application Constants ---
+APP_PRODUCT = "Py2WinPro"
+APP_VERSION = "1.0.0"
 
-    if not all_checks_passed:
-        logger.error("Critical pre-flight checks failed. Aborting startup.")
-        # In a real GUI app, we would show a user-friendly dialog with the report.
-        # For a console app, we print the failures to stderr and exit.
-        print("Error: Critical pre-flight checks failed. The application cannot start.", file=sys.stderr)
-        print("Please review the following errors:", file=sys.stderr)
-        for result in report['results']:
-            if not result['success'] and result['critical']:
-                print(f"  - Check: '{result['check']}' | Message: {result['message']}", file=sys.stderr)
-        sys.exit(1)
 
-    logger.info("All pre-flight checks passed successfully.")
+def app_main() -> None:
+    """Main application logic loop (placeholder for GUI/event loop)."""
+    logger = logging.getLogger(APP_PRODUCT)
+    logger.info("Main application loop starting.")
 
-    # 3. Set up the Heartbeat probe and the DebugDaemon watchdog
+    # Watchdog and heartbeat
     heartbeat = Heartbeat()
-    debug_daemon = DebugDaemon(heartbeat)
+    debug_daemon = DebugDaemon(heartbeat_probe=heartbeat)
     debug_daemon.start()
 
-    # 4. Main Application Loop (Placeholder)
-    # This loop simulates a running application by periodically sending a
-    # heartbeat signal. In a real app, this would be the GUI event loop
-    # or main processing logic.
-    logger.info("Main application loop started. Press Ctrl+C to exit.")
     try:
         loop_count = 0
         while True:
             loop_count += 1
-            logger.info("Main loop is running (iteration %d)...", loop_count)
-
-            # Signal that the application is alive and responsive.
-            heartbeat.beat()
-
-            # Simulate doing work
-            time.sleep(5)
-
+            heartbeat.beat()  # signal liveness
+            logger.info("Application running (iteration %d)…", loop_count)
+            # Replace sleep with your GUI mainloop() or work cycle
+            time.sleep(2)
     except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt received. Shutting down gracefully.")
-
+        logger.info("Shutdown signal received. Exiting gracefully.")
     finally:
-        # 5. Graceful Shutdown Procedure
-        logger.info("Initiating shutdown...")
-        debug_daemon.stop()
-        # Wait for the daemon thread to finish its current cycle
-        debug_daemon.join(timeout=3)
-        logger.info("========================================")
-        logger.info("Application has shut down.")
-        logger.info("========================================")
+        if debug_daemon.is_alive():
+            debug_daemon.stop()
+            debug_daemon.join(timeout=3)
+        logger.info("Shutdown complete.")
+
+
+def main() -> None:
+    """
+    Program entry point:
+    1) initialize CrashGuard,
+    2) honor Safe Mode,
+    3) run pre-flight checks,
+    4) start app loop.
+    """
+    # Console logger (CrashGuard adds file handler)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    # 1) Global exception handler and file logging
+    install_crash_guard(app_version=APP_VERSION, product=APP_PRODUCT)
+
+    # 2) Safe Mode (optional)
+    if SafeMode.enabled():
+        logging.getLogger(APP_PRODUCT).warning(
+            "Launching in SAFE MODE. Some features may be disabled."
+        )
+
+    # 3) Pre-flight environment validation
+    if not run_preflight(product_name=APP_PRODUCT):
+        # Specific code for pre-flight failure so CI/scripts can detect it
+        sys.exit(2)
+
+    # 4) Start main application
+    app_main()
+
 
 if __name__ == "__main__":
     main()
