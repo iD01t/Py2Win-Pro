@@ -16,16 +16,44 @@ This project is being built with a "bullet-proof" philosophy, including:
 
 ## 📋 Current Status
 
-This project is in the initial development phase. The core resilience features have been implemented as a foundation.
+This project is fully functional and includes a comprehensive suite of resilience features, a graphical user interface, and a build system for creating a standalone executable.
+
+## ✨ Features
+
+-   **CrashGuard:** Catches unhandled exceptions, generates detailed crash reports with system information, and attempts self-healing actions.
+-   **Self-Healing:** Automatically clears the cache on startup and detects recurring crashes to suggest launching in Safe Mode.
+-   **DebugDaemon:** A watchdog that monitors application health and can perform self-healing actions.
+-   **Pre-flight Checks:** Verifies the environment (OS, Python version, disk space, dependencies) before launch to prevent common errors.
+-   **GUI Control Panel:** A Tkinter-based UI for monitoring logs, testing crash recovery, and managing the application.
+-   **One-Click Build:** A PyInstaller-based build script to create a single, self-contained executable.
 
 ## 🛠️ How to Run
 
+### From Source
+
 1.  Ensure you have Python 3.8+ installed.
-2.  Run the main entry point from the root directory:
+2.  It is recommended to create a virtual environment:
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate  # On Windows, use `.venv\Scripts\activate`
+    ```
+3.  Install the required dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+4.  Run the main entry point from the root directory:
     ```bash
     python3 src/main.py
     ```
-    *Note: The application is currently designed to run on Windows only. The pre-flight check will prevent it from starting on other operating systems.*
+
+### Building the Executable
+
+1.  Follow the steps above to set up the environment and install dependencies.
+2.  Run the build script:
+    ```bash
+    python3 build.py
+    ```
+3.  The executable will be located in the `dist` directory.
 
 ## 📂 Project Structure
 
