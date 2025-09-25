@@ -31,6 +31,27 @@ def _get_data_dir(product_name: str) -> str:
 # ---------------------------
 # Crash report generation
 # ---------------------------
+def _get_system_info() -> dict:
+    """Gather basic system information for the crash report."""
+    import platform
+    info = {
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "architecture": platform.machine(),
+        "processor": platform.processor(),
+    }
+    try:
+        # psutil is a powerful library for system monitoring.
+        # It's not a default dependency, so we handle its absence gracefully.
+        import psutil
+        info["cpu_count"] = psutil.cpu_count()
+        info["memory_total_mb"] = psutil.virtual_memory().total // (1024 * 1024)
+        info["memory_available_mb"] = psutil.virtual_memory().available // (1024 * 1024)
+    except ImportError:
+        info["psutil"] = "not installed"
+    return info
+
+
 def _generate_crash_report(
     exc_type: type,
     exc_value: BaseException,
@@ -42,12 +63,14 @@ def _generate_crash_report(
     """Generate a detailed JSON crash report under <data_dir>/crashes."""
     report = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "exc_type": getattr(exc_type, "__name__", str(exc_type)),
-        "message": str(exc_value),
-        "traceback": "".join(traceback.format_tb(tb)),
-        "version": app_version,
-        "platform": sys.platform,
         "product": product,
+        "version": app_version,
+        "exception": {
+            "type": getattr(exc_type, "__name__", str(exc_type)),
+            "message": str(exc_value),
+            "traceback": "".join(traceback.format_tb(tb)),
+        },
+        "system": _get_system_info(),
     }
 
     crash_dir = os.path.join(data_dir, "crashes")
@@ -65,19 +88,79 @@ def _generate_crash_report(
 
 
 # ---------------------------
-# Self-heal (placeholder)
+# Self-heal
 # ---------------------------
-def _attempt_self_heal(product: str) -> None:
+def _clear_cache(product: str) -> bool:
     """
-    Placeholder for self-healing logic.
-    Examples: disable extensions, clear caches, restart workers, toggle Safe Mode.
+    A self-heal recipe that clears the application's temporary cache directory.
+    Returns True on success, False on failure.
     """
     logger = logging.getLogger(product)
+    cache_dir = os.path.join(_get_data_dir(product), "cache")
+    if not os.path.exists(cache_dir):
+        logger.info("Self-heal: Cache directory does not exist; skipping clear.")
+        return True
+
+    logger.warning("Self-heal: Clearing cache directory at %s", cache_dir)
     try:
-        logger.info("Attempting self-heal… (placeholder)")
-        # TODO: implement real remediation recipes
-    except Exception as e:
-        logger.exception("Self-heal attempt failed: %s", e)
+        # shutil.rmtree is used to recursively delete the directory
+        import shutil
+        shutil.rmtree(cache_dir)
+        return True
+    except OSError as e:
+        logger.error("Self-heal: Failed to clear cache directory: %s", e)
+        return False
+
+
+def _attempt_self_heal(product: str) -> None:
+    """
+    Run a sequence of self-healing recipes after a crash.
+    This includes clearing the cache and checking for recurring crashes.
+    """
+    logger = logging.getLogger(product)
+    logger.info("Attempting self-heal...")
+
+    # --- Recipe 1: Clear Cache ---
+    _clear_cache(product)
+
+    # --- Recipe 2: Check for Recurring Crashes ---
+    # This recipe checks for multiple crashes in a short time and suggests Safe Mode.
+    data_dir = _get_data_dir(product)
+    crash_history_path = os.path.join(data_dir, "crash_history.json")
+    max_crashes = 3
+    time_window = 60 * 10  # 10 minutes
+
+    try:
+        # Load crash history or initialize if it doesn't exist
+        history = []
+        if os.path.exists(crash_history_path):
+            with open(crash_history_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+
+        # Add the current crash timestamp
+        now = int(time.time())
+        history.append(now)
+
+        # Keep only crashes within the time window
+        recent_crashes = [t for t in history if now - t < time_window]
+
+        # If we have too many recent crashes, trigger the safe mode flag
+        if len(recent_crashes) >= max_crashes:
+            logger.warning("Recurring crashes detected! Suggesting Safe Mode on next launch.")
+            # This flag file will be checked by the application on startup.
+            with open(os.path.join(data_dir, "safemode.flag"), "w", encoding="utf-8") as f:
+                f.write("1")
+            # Reset the history to prevent immediate re-triggering
+            recent_crashes = []
+
+        # Save the updated history
+        with open(crash_history_path, "w", encoding="utf-8") as f:
+            json.dump(recent_crashes, f)
+
+    except (IOError, json.JSONDecodeError) as e:
+        logger.error("Could not update crash history: %s", e)
+
+    logger.info("Self-heal attempt finished.")
 
 
 # ---------------------------

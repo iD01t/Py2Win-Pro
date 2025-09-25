@@ -65,9 +65,9 @@ class TestCrashGuard(unittest.TestCase):
 
         self.assertEqual(report_data.get("product"), self.PRODUCT_NAME)
         self.assertEqual(report_data.get("version"), "0.0.1-test")
-        self.assertEqual(report_data.get("exc_type"), "ValueError")
-        self.assertEqual(report_data.get("message"), "This is a deliberate crash for testing purposes.")
-        self.assertIn("crasher.py", report_data.get("traceback", ""))
+        self.assertEqual(report_data.get("exception", {}).get("type"), "ValueError")
+        self.assertEqual(report_data.get("exception", {}).get("message"), "This is a deliberate crash for testing purposes.")
+        self.assertIn("crasher.py", report_data.get("exception", {}).get("traceback", ""))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
